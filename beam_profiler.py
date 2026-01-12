@@ -71,14 +71,18 @@ class Image:
             fig.colorbar(surf, ax=ax2, fraction=0.046)
 
             plt.tight_layout()
-            plt.show()
+            plt.show(block=False)
+            plt.pause(0.1)
+            plt.close()
 
         else:
             fig, ax = plt.subplots(figsize=(8, 6), dpi=300)
             ax.imshow(self.image, cmap="gray")
             ax.axis("off")
 
-        plt.show()
+            plt.show(block=False)
+            plt.pause(0.1)
+            plt.close()
 
     def subtract_dark(
         self,
@@ -140,7 +144,8 @@ class Image:
             ax.axis("off")
 
             plt.tight_layout()
-            plt.show()
+            plt.show(block=False)
+            plt.pause(0.1)
             plt.close(fig)
 
             print(f"Zeroed pixels: {int(mask_zero.sum())} / {mask_zero.size}")
@@ -258,7 +263,8 @@ class Image:
             axes[1].axis("off")
 
             plt.tight_layout()
-            plt.show()
+            plt.show(block=False)
+            plt.pause(0.1)
             plt.close(fig)
 
             # useful diagnostics
@@ -301,7 +307,8 @@ class Image:
             ax.set_title("Absolute difference" if absolute else "Difference I_final − I_init")
             ax.axis("off")
             plt.colorbar(im, ax=ax, fraction=0.046)
-            plt.show()
+            plt.show(block=False)
+            plt.pause(0.1)
             plt.close(fig)
 
         return diff_img
@@ -470,7 +477,8 @@ class Image:
             fig.colorbar(surf, ax=ax2, fraction=0.046)
 
             plt.tight_layout()
-            plt.show()
+            plt.show(block=False)
+            plt.pause(0.1)
             plt.close(fig)
 
         else:
@@ -505,7 +513,8 @@ class Image:
             ax.legend()
             plt.colorbar(im, ax=ax, fraction=0.046)
             plt.tight_layout()
-            plt.show()
+            plt.show(block=False)
+            plt.pause(0.1)
             plt.close(fig)
 
     def iterative_centroid_method(
@@ -721,11 +730,11 @@ class Image:
             d_min_mm = d_min_um * 1e-3
 
             # FWHM from ISO beam diameters
-            fwhm_maj_px = d_maj * np.sqrt(np.log(2))
-            fwhm_min_px = d_min * np.sqrt(np.log(2))
+            fwhm_maj_px = d_maj * np.sqrt(np.log(2) / 2)
+            fwhm_min_px = d_min * np.sqrt(np.log(2) / 2)
 
-            fwhm_maj_mm = d_maj_mm * np.sqrt(np.log(2))
-            fwhm_min_mm = d_min_mm * np.sqrt(np.log(2))
+            fwhm_maj_mm = d_maj_mm * np.sqrt(np.log(2) / 2)
+            fwhm_min_mm = d_min_mm * np.sqrt(np.log(2) / 2)
 
         # --------- PRINTS ---------
         phi_deg = float(np.degrees(phi))
@@ -799,7 +808,8 @@ class Image:
             ax.axis("off")
             ax.legend(loc="upper right", framealpha=0.9)
             plt.tight_layout()
-            plt.show()
+            plt.show(block=False)
+            plt.pause(0.1)
             plt.close(fig)
 
         return {
@@ -897,7 +907,8 @@ class Image:
         ax.axis("off")
         ax.legend(loc=legend_loc, framealpha=0.9)
         plt.tight_layout()
-        plt.show()
+        plt.show(block=False)
+        plt.pause(0.1)
         plt.close(fig)
 
     @staticmethod
@@ -1027,7 +1038,8 @@ class Image:
             ax.set_title("Gaussian fit contour overlay")
             ax.axis("off")
             plt.tight_layout()
-            plt.show()
+            plt.show(block=False)
+            plt.pause(0.1)
             plt.close(fig)
 
             # ---- 2nd FIGURE: fitted Gaussian (2D + 3D) ----
@@ -1063,7 +1075,8 @@ class Image:
             ax3d.set_zlabel("Intensity")
 
             plt.tight_layout()
-            plt.show()
+            plt.show(block=False)
+            plt.pause(0.1)
             plt.close(fig2)
 
         return ROI_conv, out_conv, meta
