@@ -16,6 +16,8 @@ BeamProfilerPy includes:
 - Dark-frame subtraction
 - Robust hot-pixel detection and correction  
   (percentile-based + local median outlier detection)
+- Median filtering for noise suppression
+- Gaussian filtering for smoothing interference patterns
 
 ### 🔹 Beam parameter estimation (ISO 11146)
 Two independent algorithms are implemented:
