@@ -779,20 +779,20 @@ class Image:
             # Orientation (slide): φ = 1/2 arctan( 2σxy / (σx^2 - σy^2) )
             phi = 0.5 * np.arctan2(2.0 * sxy, (sx2 - sy2))
 
-            # convert to µm
-            d_maj_um = d_maj * pixel_size
-            d_min_um = d_min * pixel_size
+        # convert to µm
+        d_maj_um = d_maj * pixel_size
+        d_min_um = d_min * pixel_size
 
-            # convert to mm
-            d_maj_mm = d_maj_um * 1e-3
-            d_min_mm = d_min_um * 1e-3
+        # convert to mm
+        d_maj_mm = d_maj_um * 1e-3
+        d_min_mm = d_min_um * 1e-3
 
-            # FWHM from ISO beam diameters
-            fwhm_maj_px = d_maj * np.sqrt(np.log(2) / 2)
-            fwhm_min_px = d_min * np.sqrt(np.log(2) / 2)
+        # FWHM from ISO beam diameters
+        fwhm_maj_px = d_maj * np.sqrt(np.log(2) / 2)
+        fwhm_min_px = d_min * np.sqrt(np.log(2) / 2)
 
-            fwhm_maj_mm = d_maj_mm * np.sqrt(np.log(2) / 2)
-            fwhm_min_mm = d_min_mm * np.sqrt(np.log(2) / 2)
+        fwhm_maj_mm = d_maj_mm * np.sqrt(np.log(2) / 2)
+        fwhm_min_mm = d_min_mm * np.sqrt(np.log(2) / 2)
 
         # --------- PRINTS ---------
         phi_deg = float(np.degrees(phi))
