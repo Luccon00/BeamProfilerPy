@@ -5,6 +5,61 @@ from mpl_toolkits.mplot3d import Axes3D
 import imageio.v3 as iio
 from scipy.ndimage import median_filter, uniform_filter, gaussian_filter
 from scipy.optimize import curve_fit
+from pathlib import Path
+from datetime import datetime
+from contextlib import redirect_stdout, redirect_stderr
+
+
+class OutputManager:
+    """
+    Centralizes:
+      - output folder creation (next to the input image)
+      - figure saving
+      - logging prints/errors to info.txt
+
+    Folder naming:
+      - gaussian_fitting_images
+      - iterative_centroid_images
+      - <algorithm>_images (fallback)
+    """
+
+    def __init__(self, image_path: str, algorithm_used: str):
+        self.image_path = Path(image_path)
+        self.base_dir = self.image_path.parent
+
+        alg = algorithm_used.strip().lower()
+        if alg == "gaussian_fitting":
+            folder = "gaussian_fitting_images"
+        elif alg == "iterative_centroid":
+            folder = "iterative_centroid_images"
+        else:
+            folder = f"{alg}_images"
+
+        self.out_dir = self.base_dir / folder
+        self.out_dir.mkdir(parents=True, exist_ok=True)
+
+        self.info_path = self.out_dir / "info.txt"
+
+    def save_fig(self, fig, filename: str, *, dpi: int = 300, bbox_inches: str = "tight"):
+        name = Path(filename)
+        if name.suffix == "":
+            name = name.with_suffix(".tiff")
+        fig.savefig(self.out_dir / name, dpi=dpi, bbox_inches=bbox_inches)
+
+    def open_log(self):
+        """
+        Returns:
+          (file_handle, redirect_stdout_ctx, redirect_stderr_ctx)
+        """
+        f = open(self.info_path, "a", encoding="utf-8")
+
+        f.write("\n" + "=" * 90 + "\n")
+        f.write(f"Run timestamp: {datetime.now().isoformat(sep=' ', timespec='seconds')}\n")
+        f.write(f"Image: {self.image_path.name}\n")
+        f.write("=" * 90 + "\n")
+        f.flush()
+
+        return f, redirect_stdout(f), redirect_stderr(f)
 
 
 class Image:
@@ -12,6 +67,7 @@ class Image:
     def __init__(self, path_file: str):
         "Initialize the image by loading it from the provided path"
         self.path = path_file
+        self.output = None 
         try:
             self.image = iio.imread(path_file)
             self.shape = self.image.shape
@@ -22,13 +78,26 @@ class Image:
             self.image = None
 
     @classmethod
-    def from_array(cls, array, path=None):
+    def from_array(cls, array, path=None, output=None):
         obj = cls.__new__(cls)
         obj.path = path
+        obj.output = output  
         obj.image = array
         obj.shape = array.shape
         obj.ny, obj.nx = array.shape[:2]
         return obj
+
+    def set_output(self, output: OutputManager):
+        self.output = output
+        return self
+
+    def _save_fig(self, fig, filename: str):
+        """
+        Save into OutputManager folder if present.
+        If output is not set, fall back to original behavior (do nothing special).
+        """
+        if self.output is not None:
+            self.output.save_fig(fig, filename)
 
     def plot(self, plot_3D: bool = True):
         """
@@ -72,9 +141,11 @@ class Image:
 
             plt.tight_layout()
             # plt.show(block=True)
-            plt.savefig(r"C:\Users\luccon\Desktop\Work_MTV\PhD_2024\Code_BeamProfiler\Test01132026_GaussianBeam\Exposure1sec\Output\beam.tiff", dpi=300, bbox_inches="tight")
+
+            self._save_fig(fig, "beam.tiff")
+
             plt.pause(0.1)
-            plt.close()
+            plt.close(fig)
 
         else:
             fig, ax = plt.subplots(figsize=(8, 6), dpi=300)
@@ -82,9 +153,10 @@ class Image:
             ax.axis("off")
 
             # plt.show(block=True)
-            plt.savefig(r"C:\Users\luccon\Desktop\Work_MTV\PhD_2024\Code_BeamProfiler\Test01132026_GaussianBeam\Exposure1sec\Output\beam.tiff", dpi=300, bbox_inches="tight")
+            self._save_fig(fig, "beam.tiff")
+
             plt.pause(0.1)
-            plt.close()
+            plt.close(fig)
 
     def subtract_dark(
         self,
@@ -147,14 +219,16 @@ class Image:
 
             plt.tight_layout()
             # plt.show(block=True)
-            plt.savefig(r"C:\Users\luccon\Desktop\Work_MTV\PhD_2024\Code_BeamProfiler\Test01132026_GaussianBeam\Exposure1sec\Output\beam_debug.tiff", dpi=300, bbox_inches="tight")
+
+            self._save_fig(fig, "beam_debug.tiff")
+
             plt.pause(0.1)
             plt.close(fig)
 
             print(f"pixels subtracted: {int(mask_zero.sum())} / {mask_zero.size}")
 
         corrected_out = corrected.astype(self.image.dtype)
-        return Image.from_array(corrected_out, path=self.path)
+        return Image.from_array(corrected_out, path=self.path, output=self.output)
 
     def crop(self, x_min: int, x_max: int, y_min: int, y_max: int):
         "Crop the image to use only the ROI"
@@ -165,8 +239,7 @@ class Image:
             raise ValueError("Invalid ROI")
 
         cropped = self.image[y_min:y_max, x_min:x_max]
-
-        return Image.from_array(cropped, path=self.path)
+        return Image.from_array(cropped, path=self.path, output=self.output)
 
     def remove_hot_pixels(
         self,
@@ -241,7 +314,7 @@ class Image:
 
         # back to original dtype
         corrected = corrected_f.astype(img.dtype)
-        img_final = Image.from_array(corrected, path=self.path)
+        img_final = Image.from_array(corrected, path=self.path, output=self.output)
 
         # ---- PLOT: original / overlay / final ----
         if debug_plot:
@@ -267,7 +340,9 @@ class Image:
 
             plt.tight_layout()
             # plt.show(block=True)
-            plt.savefig(r"C:\Users\luccon\Desktop\Work_MTV\PhD_2024\Code_BeamProfiler\Test01132026_GaussianBeam\Exposure1sec\Output\beam_debug.tiff", dpi=300, bbox_inches="tight")
+
+            self._save_fig(fig, "beam_debug.tiff")
+
             plt.pause(0.1)
             plt.close(fig)
 
@@ -294,7 +369,7 @@ class Image:
         if absolute:
             diff = np.abs(diff)
 
-        diff_img = Image.from_array(diff, path=self.path)
+        diff_img = Image.from_array(diff, path=self.path, output=self.output)
 
         if plot:
             fig, ax = plt.subplots(figsize=(8, 6), dpi=300)
@@ -312,7 +387,9 @@ class Image:
             ax.axis("off")
             plt.colorbar(im, ax=ax, fraction=0.046)
             # plt.show(block=True)
-            plt.savefig(r"C:\Users\luccon\Desktop\Work_MTV\PhD_2024\Code_BeamProfiler\Test01132026_GaussianBeam\Exposure1sec\Output\beam_difference.tiff", dpi=300, bbox_inches="tight")
+
+            self._save_fig(fig, "beam_difference.tiff")
+
             plt.pause(0.1)
             plt.close(fig)
 
@@ -483,7 +560,9 @@ class Image:
 
             plt.tight_layout()
             # plt.show(block=True)
-            plt.savefig(r"C:\Users\luccon\Desktop\Work_MTV\PhD_2024\Code_BeamProfiler\Test01132026_GaussianBeam\Exposure1sec\Output\centroid_method.tiff", dpi=300, bbox_inches="tight")
+
+            self._save_fig(fig, "centroid_method.tiff")
+
             plt.pause(0.1)
             plt.close(fig)
 
@@ -520,10 +599,11 @@ class Image:
             plt.colorbar(im, ax=ax, fraction=0.046)
             plt.tight_layout()
             # plt.show(block=True)
-            plt.savefig(r"C:\Users\luccon\Desktop\Work_MTV\PhD_2024\Code_BeamProfiler\Test01132026_GaussianBeam\Exposure1sec\Output\centroid_method.tiff", dpi=300, bbox_inches="tight")
+
+            self._save_fig(fig, "centroid_method.tiff")
+
             plt.pause(0.1)
             plt.close(fig)
-
 
     def filters(
             self,
@@ -534,7 +614,7 @@ class Image:
             gaussian_sigma: float = 3.0,
             plot: bool = False
     ) -> "Image":
-        
+
         img = self.image.astype(np.float64)
 
         if use_median:
@@ -545,13 +625,14 @@ class Image:
 
                 im = ax.imshow(img, cmap="gray", interpolation="none")
 
-                    
                 ax.set_title("Median filter image")
                 ax.axis("off")
                 plt.colorbar(im, ax=ax, fraction=0.046)
                 plt.tight_layout()
                 # plt.show(block=True)
-                plt.savefig(r"C:\Users\luccon\Desktop\Work_MTV\PhD_2024\Code_BeamProfiler\Test01132026_GaussianBeam\Exposure1sec\Output\median_filter.tiff", dpi=300, bbox_inches="tight")
+
+                self._save_fig(fig, "median_filter.tiff")
+
                 plt.pause(0.1)
                 plt.close(fig)
 
@@ -563,17 +644,18 @@ class Image:
 
                 im = ax.imshow(img, cmap="gray", interpolation="none")
 
-                    
                 ax.set_title("Gaussian filter image")
                 ax.axis("off")
                 plt.colorbar(im, ax=ax, fraction=0.046)
                 plt.tight_layout()
                 # plt.show(block=True)
-                plt.savefig(r"C:\Users\luccon\Desktop\Work_MTV\PhD_2024\Code_BeamProfiler\Test01132026_GaussianBeam\Exposure1sec\Output\gaussian_filter.tiff", dpi=300, bbox_inches="tight")
+
+                self._save_fig(fig, "gaussian_filter.tiff")
+
                 plt.pause(0.1)
                 plt.close(fig)
 
-        return Image.from_array(img, path=self.path)
+        return Image.from_array(img, path=self.path, output=self.output)
 
     def iterative_centroid_method(
         self,
@@ -867,7 +949,9 @@ class Image:
             ax.legend(loc="upper right", framealpha=0.9)
             plt.tight_layout()
             # plt.show(block=True)
-            plt.savefig(r"C:\Users\luccon\Desktop\Work_MTV\PhD_2024\Code_BeamProfiler\Test01132026_GaussianBeam\Exposure1sec\Output\beam_diameters.tiff", dpi=300, bbox_inches="tight")
+
+            self._save_fig(fig, "beam_diameters.tiff")
+
             plt.pause(0.1)
             plt.close(fig)
 
@@ -967,7 +1051,9 @@ class Image:
         ax.legend(loc=legend_loc, framealpha=0.9)
         plt.tight_layout()
         # plt.show(block=True)
-        plt.savefig(r"C:\Users\luccon\Desktop\Work_MTV\PhD_2024\Code_BeamProfiler\Test01132026_GaussianBeam\Exposure1sec\Output\beam_diameters_global.tiff", dpi=300, bbox_inches="tight")
+
+        self._save_fig(fig, "beam_diameters_global.tiff")
+
         plt.pause(0.1)
         plt.close(fig)
 
@@ -984,7 +1070,6 @@ class Image:
         xr = c * (x - x0) + s * (y - y0)
         yr = -s * (x - x0) + c * (y - y0)
 
-        # Gaussian computation using sx and sy (standard deviations)
         exponent = -0.5 * (((xr / sx) ** 2) + ((yr / sy) ** 2))
         g = B + A * np.exp(exponent)
 
@@ -998,7 +1083,6 @@ class Image:
         sx2 = sx * sx
         sy2 = sy * sy
 
-        # Sigma = R diag(sx2, sy2) R^T
         sigma_x2 = c * c * sx2 + s * s * sy2
         sigma_y2 = s * s * sx2 + c * c * sy2
         sigma_xy = c * s * (sx2 - sy2)
@@ -1022,8 +1106,8 @@ class Image:
         y0_0 = float(initial_moments["y_bar"])
 
         # Initialize sigma with RMS (moments)
-        sx_0 = float(initial_moments["sigma_x"]) # Asse x
-        sy_0 = float(initial_moments["sigma_y"]) # Asse y
+        sx_0 = float(initial_moments["sigma_x"])  # Asse x
+        sy_0 = float(initial_moments["sigma_y"])  # Asse y
 
         # Variance initialization
         sx2_0 = float(initial_moments["sigma_x2"])
@@ -1032,26 +1116,19 @@ class Image:
         phi_0 = 0.5 * np.arctan2(2.0 * sxy_0, (sx2_0 - sy2_0))
 
         # --- Principal axes: eigenvalues of covariance matrix ---
-        # Cov = [[sx2_0, sxy_0],
-        #        [sxy_0, sy2_0]]
         tr = sx2_0 + sy2_0
         det_term = np.sqrt(((sx2_0 - sy2_0) * 0.5) ** 2 + sxy_0 ** 2)
 
-        # Eigenvalues (variances along principal axes)
         lam1 = 0.5 * tr + det_term  # >= lam2
-        lam2 = 0.5 * tr - det_term        
+        lam2 = 0.5 * tr - det_term
 
-        
-        # Initialize sigma with RMS (moments)
-        sx_0 = float(np.sqrt(lam1)) # Asse x'
-        sy_0 = float(np.sqrt(lam2)) # Asse y'
-
+        sx_0 = float(np.sqrt(lam1))  # Asse x'
+        sy_0 = float(np.sqrt(lam2))  # Asse y'
 
         # Initial noise
-        # B0 = float(np.percentile(img, 1.0)) 
-        B0 = 0 # After removing background image -> only noise
+        B0 = 0  # After removing background image -> only noise
         # Initial peak
-        A0 = float(np.max(img) - B0)  # Could also be computed as img(x0, y0). Would it make more sense?
+        A0 = float(np.max(img) - B0)
 
         p0 = [A0, x0_0, y0_0, sx_0, sy_0, phi_0, B0]
 
@@ -1085,7 +1162,6 @@ class Image:
             sigma_xy=float(sigma_xy_fit),
             sigma_x=float(np.sqrt(sigma_x2_fit)),
             sigma_y=float(np.sqrt(sigma_y2_fit)),
-            # extra diagnostics
             fit_params=dict(A=float(A), B=float(B), sx=float(sx), sy=float(sy), phi_rad=float(phi)),
         )
 
@@ -1104,8 +1180,6 @@ class Image:
             print(f"    sx = {sx:.3f} px, sy = {sy:.3f} px, phi = {np.degrees(phi):.3f} deg")
 
         if plot_last:
-            # Quick overlay: 1/e^2 ellipse equivalent (ISO: d=4σ, but here σ is RMS sensor -> d=4*sqrt(sigma_x2_fit), etc.)
-            # calculation_beam_widths will be used later; this is only a fit preview
             fit_img = (self._gauss2d_rotated((X, Y), *popt)).reshape(ny, nx)
 
             fig, ax = plt.subplots(figsize=(8, 6), dpi=300)
@@ -1116,14 +1190,15 @@ class Image:
             ax.axis("off")
             plt.tight_layout()
             # plt.show(block=True)
-            plt.savefig(r"C:\Users\luccon\Desktop\Work_MTV\PhD_2024\Code_BeamProfiler\Test01132026_GaussianBeam\Exposure1sec\Output\gaussian_fitting1.tiff", dpi=300, bbox_inches="tight")
+
+            self._save_fig(fig, "gaussian_fitting1.tiff")
+
             plt.pause(0.1)
             plt.close(fig)
 
             # ---- 2nd FIGURE: fitted Gaussian (2D + 3D) ----
             fig2 = plt.figure(figsize=(14, 6), dpi=300)
 
-            # 2D: fitted gaussian image
             ax2d = fig2.add_subplot(1, 2, 1)
             im2 = ax2d.imshow(fit_img, cmap="gray", interpolation="none")
             ax2d.plot(x0, y0, marker="+", color="red", markersize=14, markeredgewidth=2)
@@ -1131,11 +1206,9 @@ class Image:
             ax2d.axis("off")
             plt.colorbar(im2, ax=ax2d, fraction=0.046)
 
-            # 3D: fitted gaussian surface
             ax3d = fig2.add_subplot(1, 2, 2, projection="3d")
 
-            # (optional) decimation to speed up 3D rendering
-            step = 4  # increase to 6 or 8 if slow
+            step = 4
             ax3d.plot_surface(
                 X[::step, ::step],
                 Y[::step, ::step],
@@ -1154,150 +1227,169 @@ class Image:
 
             plt.tight_layout()
             # plt.show(block=True)
-            plt.savefig(r"C:\Users\luccon\Desktop\Work_MTV\PhD_2024\Code_BeamProfiler\Test01132026_GaussianBeam\Exposure1sec\Output\gaussian_fitting2.tiff", dpi=300, bbox_inches="tight")
+
+            self._save_fig(fig2, "gaussian_fitting2.tiff")
+
             plt.pause(0.1)
             plt.close(fig2)
 
         return ROI_conv, out_conv, meta
 
+
+# ---------------------------------------------------------------------------------------
+# MAIN 
+# ---------------------------------------------------------------------------------------
+
 # Dark image should be changed, using an image with the same dimensions and accounting for burned pixels as well.
-dark_image_path = r"C:\Users\luccon\Desktop\Work_MTV\PhD_2024\Code_BeamProfiler\Test01132026_GaussianBeam\Exposure1sec\Test.tiff"
-dark = Image(dark_image_path)
-dark.plot(plot_3D=True)
-image_path = r"c:\Users\luccon\Desktop\Work_MTV\PhD_2024\Code_BeamProfiler\Test01132026_GaussianBeam\Exposure1sec\GaussianBeam_Qswitch438_DirectLaser2_Pot440.tiff"
-img = Image(image_path)
-img.plot(plot_3D=True)
-img_darkcorr = img.subtract_dark(
-    dark,
-    apply_dark=True,
-    low_clip_percentile=10.0,
-    clip_negative=True,
-    debug_plot=True
-)
-# offsets of the manual ROI crop relative to the "large" image
-X_ROI0 = 500
-Y_ROI0 = 530
-# img_darkcorr.plot(plot_3D=True)
-ROI_init = img_darkcorr.crop(x_min=X_ROI0, x_max=2300, y_min=Y_ROI0, y_max=1960)
-hot_pixels_flag = False
-if hot_pixels_flag:
-    img_final = img_darkcorr.remove_hot_pixels(
-        size_replace=19,
-        use_percentile=True,
-        p=99.9,
-        use_median=True,
-        size_median=3,
-        k_med=9.0,
+dark_image_path = r"C:\Users\luccon\Desktop\Work_MTV\PhD_2024\Calcoli_Smath\Caratterizzazione Gaussian beam\Laser2\154.6\Test.tiff"
+
+image_path = r"C:\Users\luccon\Desktop\Work_MTV\PhD_2024\Calcoli_Smath\Caratterizzazione Gaussian beam\Laser2\154.6\GaussianBeam_Qswitch443_DirectLaser2_Pot440.tiff"
+
+algorithm_used = "gaussian_fitting"
+
+out = OutputManager(image_path, algorithm_used)
+log_file, redir_out, redir_err = out.open_log()
+
+with log_file, redir_out, redir_err:
+
+    dark = Image(dark_image_path).set_output(out)
+    dark.plot(plot_3D=True)
+
+    img = Image(image_path).set_output(out)
+    img.plot(plot_3D=True)
+
+    img_darkcorr = img.subtract_dark(
+        dark,
+        apply_dark=True,
+        low_clip_percentile=10.0,
+        clip_negative=True,
         debug_plot=True
     )
-    img_final.plot()
-else:
-    img_final = img_darkcorr
-ROI = img_final.crop(x_min=X_ROI0, x_max=2300, y_min=Y_ROI0, y_max=1960)
-# x_min=700, x_max=2300, y_min=530, y_max=1960 -> Manual crop to reduce iterations
-# x_min=0, x_max=2452, y_min=0, y_max=2054
-ROI.plot()
-ROI_final = ROI.remove_hot_pixels(
-    size_replace=19,
-    use_percentile=False,
-    p=99.9,
-    use_median=True,
-    size_median=5,
-    k_med=9.0,
-    debug_plot=False
-)
 
-debug = False
-if debug:
-    ROI_init.plot()
-    ROI_final.plot()
-    ROI_diff = ROI_final.difference(ROI_init, absolute=True, plot=True)
+    # offsets of the manual ROI crop relative to the "large" image
+    X_ROI0 = 500
+    Y_ROI0 = 530
 
-# Activate median filter for noise smoothing
-# Activatre gaussian filter for interference pattern removal (beam spot size can increase a little bit)
-filter = True
-if filter:
-    ROI_final = ROI_final.filters(
-        use_median = True,
-        use_gaussian = True,
-        median_size = 5,
-        gaussian_sigma = 30,
-        plot = True
+    ROI_init = img_darkcorr.crop(x_min=X_ROI0, x_max=2300, y_min=Y_ROI0, y_max=1960)
+
+    hot_pixels_flag = False
+    if hot_pixels_flag:
+        img_final = img_darkcorr.remove_hot_pixels(
+            size_replace=19,
+            use_percentile=True,
+            p=99.9,
+            use_median=True,
+            size_median=3,
+            k_med=9.0,
+            debug_plot=True
+        )
+        img_final.plot()
+    else:
+        img_final = img_darkcorr
+
+    ROI = img_final.crop(x_min=X_ROI0, x_max=2300, y_min=Y_ROI0, y_max=1960)
+    ROI.plot()
+
+    ROI_final = ROI.remove_hot_pixels(
+        size_replace=19,
+        use_percentile=False,
+        p=99.9,
+        use_median=True,
+        size_median=5,
+        k_med=9.0,
+        debug_plot=False
     )
 
-algorithm_used = "iterative_centroid"
-if algorithm_used == "gaussian_fitting":
+    debug = False
+    if debug:
+        ROI_init.plot()
+        ROI_final.plot()
+        ROI_diff = ROI_final.difference(ROI_init, absolute=True, plot=True)
 
-    # Estimate initial parameters
-    initial_moments = ROI_final.compute_moments(
-        dx=1.0,
-        dy=1.0,
-        verbose=True,
-        plot_centroid=False,
-        zero_low_percentile=None,
-        zero_debug=False
+    # Activate median filter for noise smoothing
+    # Activatre gaussian filter for interference pattern removal (beam spot size can increase a little bit)
+    filter = False
+    if filter:
+        ROI_final = ROI_final.filters(
+            use_median=True,
+            use_gaussian=True,
+            median_size=5,
+            gaussian_sigma=10,
+            plot=True
+        )
+
+    if algorithm_used == "gaussian_fitting":
+
+        # Estimate initial parameters
+        initial_moments = ROI_final.compute_moments(
+            dx=1.0,
+            dy=1.0,
+            verbose=True,
+            plot_centroid=False,
+            zero_low_percentile=None,
+            zero_debug=False
+        )
+
+        ROI_conv, out_conv, meta = ROI_final.gaussian_fitting(
+            initial_moments,
+            verbose=True,
+            plot_last=True
+        )
+
+    elif algorithm_used == "iterative_centroid":
+        ROI_conv, out_conv, meta = ROI_final.iterative_centroid_method(
+            k=3,
+            eps=0.01,
+            max_iter=100,
+            dx=1.0,
+            dy=1.0,
+            verbose=True,
+            plot_last=True
+        )
+
+        print("ROI global offsets:", meta["x_off"], meta["y_off"])
+        print("ROI global centroid:", meta["x_off"] + out_conv["x_bar"], meta["y_off"] + out_conv["y_bar"])
+
+    # Pixel size (µm)
+    PIXEL_SIZE_UM = 3.45
+    results = ROI_conv.calculation_beam_widths(out_conv, beam_type="astigmatic", pixel_size=PIXEL_SIZE_UM, plot=True)
+
+    # Global centroid relative to the full image (img or img_final)
+    x0_global = X_ROI0 + meta["x_off"] + results["x0"]
+    y0_global = Y_ROI0 + meta["y_off"] + results["y0"]
+
+    print("Full image global centroid:", x0_global, y0_global)
+
+    img_final.plot_beam_ellipse_global(
+        results,
+        x0_global=x0_global,
+        y0_global=y0_global,
+        show_axes=True,
+        title="Beam ellipse overlay on initial image"
     )
 
-    ROI_conv, out_conv, meta = ROI_final.gaussian_fitting(
-        initial_moments,
-        verbose=True,
-        plot_last=True
-    )
+    # Notes
 
-elif algorithm_used == "iterative_centroid":
-    ROI_conv, out_conv, meta = ROI_final.iterative_centroid_method(
-        k=3,
-        eps=0.01,
-        max_iter=100,
-        dx=1.0,
-        dy=1.0,
-        verbose=True,
-        plot_last=True
-    )
+    # Apply the code to test laser images (see Zotero) and check whether you obtain the same results as the original images
 
-    print("ROI global offsets:", meta["x_off"], meta["y_off"])
-    print("ROI global centroid:", meta["x_off"] + out_conv["x_bar"], meta["y_off"] + out_conv["y_bar"])
+    # Check the rotation matrices -> Understand why the ellipse rotation differs between the two algorithms.
 
-# Pixel size (µm)
-PIXEL_SIZE_UM = 3.45
-results = ROI_conv.calculation_beam_widths(out_conv, beam_type="astigmatic", pixel_size=PIXEL_SIZE_UM, plot=True)
+    # The computed beam diameter is underestimated compared to the initial one -> One reason could be low laser energy -> The tails are buried in noise. By performing a statistical noise study, I should be able to reduce this effect.
+    # Main issue is noise -> Next steps: 1) Perform noise subtraction, 2) run computations with Gaussian fitting (Gaussian filter first).
 
-# Global centroid relative to the full image (img or img_final)
-x0_global = X_ROI0 + meta["x_off"] + results["x0"]
-y0_global = Y_ROI0 + meta["y_off"] + results["y0"]
+    ## To do
+    # I could easily add a plot of the ellipse also on img_final
+    # Compute FWHM and compare with 4 mm
 
-print("Full image global centroid:", x0_global, y0_global)
+    # I can calibrate as a function of the laser beam measurements obtained initially -> Check the lab binder.
 
-img_final.plot_beam_ellipse_global(
-    results,
-    x0_global=x0_global,
-    y0_global=y0_global,
-    show_axes=True,
-    title="Beam ellipse overlay on initial image"
-)
+    # ROI_final.compute_moments(dx=1.0, dy=1.0, verbose=True, plot_centroid=True)
 
-## Notes
+    # Ideas
+    # I could change the cropping method. For now, I am cropping with the original image. To make it more robust, I could fit the signal with a 2D Gaussian, possibly after applying a filter, and then crop.
+    # Circular cropping. Give a pixel radius and crop in a circular manner (half-height square).
 
-# Apply the code to test laser images (see Zotero) and check whether you obtain the same results as the original images
+    # I could create a filter that detects the edges and then remove burned pixels inside.
 
-# Check the rotation matrices -> Understand why the ellipse rotation differs between the two algorithms.
-
-# The computed beam diameter is underestimated compared to the initial one -> One reason could be low laser energy -> The tails are buried in noise. By performing a statistical noise study, I should be able to reduce this effect.
-# Main issue is noise -> Next steps: 1) Perform noise subtraction, 2) run computations with Gaussian fitting (Gaussian filter first).
-
-## To do
-# I could easily add a plot of the ellipse also on img_final
-# Compute FWHM and compare with 4 mm
-
-# I can calibrate as a function of the laser beam measurements obtained initially -> Check the lab binder.
-
-# ROI_final.compute_moments(dx=1.0, dy=1.0, verbose=True, plot_centroid=True)
-
-# Ideas
-# I could change the cropping method. For now, I am cropping with the original image. To make it more robust, I could fit the signal with a 2D Gaussian, possibly after applying a filter, and then crop.
-# Circular cropping. Give a pixel radius and crop in a circular manner (half-height square).
-
-# I could create a filter that detects the edges and then remove burned pixels inside.
-
-# Laser beam diameter calculation.
-# Is a Gaussian filter necessary? For interference patterns -> Try with and without the filter; if the result is very similar, then I can also use it.
+    # Laser beam diameter calculation.
+    # Is a Gaussian filter necessary? For interference patterns -> Try with and without the filter; if the result is very similar, then I can also use it.
